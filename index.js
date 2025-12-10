@@ -4,6 +4,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 
 app.use(cors());
 app.use(express.json());
@@ -130,7 +131,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/bookings-update/:serviceId", async (req, res) => {
+    app.patch("/bookings/:serviceId", async (req, res) => {
       const id = req.params.serviceId;
       const { serviceType, date, time, notes, location, totalUnit, totalCost } =
         req.body;
@@ -152,12 +153,57 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/bookings-delete/:serviceId", async (req, res) => {
+    app.delete("/bookings/:serviceId", async (req, res) => {
       const id = req.params.serviceId;
       const result = await bookingCollection.deleteOne({
         _id: new ObjectId(id),
       });
       res.send(result);
+    });
+
+    // payment API'S ------------------------------------------
+    app.post("/payment-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.serviceCost * 100);
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: "USD",
+              unit_amount: amount,
+              product_data: {
+                name: paymentInfo.serviceName,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          bookingId: paymentInfo.bookingId,
+          serviceName: paymentInfo.serviceName,
+        },
+        mode: "payment",
+        customer_email: paymentInfo.customerEmail,
+        success_url: `${process.env.CLIENT_URL}dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_URL}dashboard/payment-cancel`,
+      });
+      res.send({ url: session.url });
+    });
+
+    app.patch("/payment-success", async (req, res) => {
+      const session_id = req.query.session_id;
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      console.log(session);
+      if (session.payment_status === "paid") {
+        const bookingId = session.metadata.bookingId;
+        const query = { _id: new ObjectId(bookingId) };
+        const update = { $set: { paymentStatus: "paid" } };
+
+        const result = await bookingCollection.updateOne(query, update);
+        return res.send(result);
+      }
+
+      res.send({ success: false });
     });
 
     await client.db("admin").command({ ping: 1 });
