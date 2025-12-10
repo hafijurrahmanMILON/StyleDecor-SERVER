@@ -117,6 +117,49 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/bookings", async (req, res) => {
+      const { email } = req.query;
+      const query = {};
+      if (email) {
+        query.customerEmail = email;
+      }
+      const result = await bookingCollection
+        .find(query)
+        .sort({ orderedAt: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.patch("/bookings-update/:serviceId", async (req, res) => {
+      const id = req.params.serviceId;
+      const { serviceType, date, time, notes, location, totalUnit, totalCost } =
+        req.body;
+      const updateInfo = {
+        $set: {
+          serviceType,
+          date,
+          time,
+          notes,
+          location,
+          totalUnit,
+          totalCost,
+        },
+      };
+      const result = await bookingCollection.updateOne(
+        { _id: new ObjectId(id) },
+        updateInfo
+      );
+      res.send(result);
+    });
+
+    app.delete("/bookings-delete/:serviceId", async (req, res) => {
+      const id = req.params.serviceId;
+      const result = await bookingCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
