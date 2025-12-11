@@ -134,13 +134,20 @@ async function run() {
       res.send(result);
     });
 
-
-    app.post('/decorators', async (req, res) => {
+    app.post("/decorators", async (req, res) => {
       const newDecorator = req.body;
-      newDecorator.status = 'pending';
-      newDecorator.applied_at = new Date()
-      const result = await decoratorCollection.insertOne(newDecorator)
-    res.send(result)
+      newDecorator.status = "pending";
+      newDecorator.applied_at = new Date();
+      const result = await decoratorCollection.insertOne(newDecorator);
+      res.send(result);
+    });
+
+    app.get("/decorators", async (req, res) => {
+      const result = await decoratorCollection
+        .find()
+        .sort({ applied_at: -1 })
+        .toArray();
+      res.send(result);
     });
 
     // bookings API'S -------------------------------------------
