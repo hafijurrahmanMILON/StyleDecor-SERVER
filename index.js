@@ -5,11 +5,22 @@ const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
+const crypto = require("crypto");
 
 app.use(cors());
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@devcluster.k7riodd.mongodb.net/?appName=DevCluster`;
+
+function generateTrackingId() {
+  const prefix = "SD";
+
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+
+  const randomHex = crypto.randomBytes(4).toString("hex").toUpperCase();
+
+  return `${prefix}-${date}-${randomHex}`;
+}
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -27,6 +38,7 @@ async function run() {
     const serviceCollection = styleDecorDB.collection("services");
     const decoratorCollection = styleDecorDB.collection("decorators");
     const bookingCollection = styleDecorDB.collection("bookings");
+    const paymentCollection = styleDecorDB.collection("payments");
 
     // users API'S ---------------------------------------------
     app.post("/users", async (req, res) => {
@@ -192,15 +204,43 @@ async function run() {
 
     app.patch("/payment-success", async (req, res) => {
       const session_id = req.query.session_id;
+      const trackingId = generateTrackingId();
       const session = await stripe.checkout.sessions.retrieve(session_id);
       console.log(session);
+
+      const transactionId = session.payment_intent;
+      const query = { transactionId: transactionId };
+      const existedPayment = await paymentCollection.findOne(query);
+      if (existedPayment) {
+        return res.send({ message: "already paid", transactionId, trackingId });
+      }
+
       if (session.payment_status === "paid") {
         const bookingId = session.metadata.bookingId;
         const query = { _id: new ObjectId(bookingId) };
-        const update = { $set: { paymentStatus: "paid" } };
+        const update = { $set: { paymentStatus: "paid", trackingId } };
 
-        const result = await bookingCollection.updateOne(query, update);
-        return res.send(result);
+        const updateResult = await bookingCollection.updateOne(query, update);
+
+        const paymentData = {
+          amount: session.amount_total / 100,
+          transactionId,
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          bookingId: session.metadata.bookingId,
+          serviceName: session.metadata.serviceName,
+          paymentStatus: session.payment_status,
+          paidAt: new Date(),
+          trackingId,
+        };
+        const paymentResult = await paymentCollection.insertOne(paymentData);
+        return res.send({
+          success: true,
+          updateResult,
+          paymentResult,
+          trackingId,
+          transactionId,
+        });
       }
 
       res.send({ success: false });
