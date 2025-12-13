@@ -8,7 +8,9 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const crypto = require("crypto");
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./style-decor-firebase.json");
+// const serviceAccount = require("./style-decor-firebase.json");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -143,11 +145,41 @@ async function run() {
     });
 
     app.get("/decorators", async (req, res) => {
+      const status = req.query.status;
+      const query = {};
+      if (status) {
+        query.status = { $in: status.split(",") };
+      }
       const result = await decoratorCollection
-        .find()
+        .find(query)
         .sort({ applied_at: -1 })
         .toArray();
       res.send(result);
+    });
+
+    app.patch("/decorators/:id", async (req, res) => {
+      const id = req.params.id;
+      const { status, email } = req.body;
+      const query = { _id: new ObjectId(id) };
+
+      const updateResult = await decoratorCollection.updateOne(
+        query,
+        updateInfo
+      );
+
+      if (status === "approved") {
+        const updateInfo = {
+          $set: {
+            role: "decorator",
+          },
+        };
+        const updateRole = await userCollection.updateOne(
+          { email },
+          updateInfo
+        );
+      }
+
+      res.send(updateResult);
     });
 
     // bookings API'S -------------------------------------------
@@ -306,10 +338,10 @@ async function run() {
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
   }
 }
