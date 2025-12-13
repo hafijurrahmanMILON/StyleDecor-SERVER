@@ -9,7 +9,9 @@ const crypto = require("crypto");
 const admin = require("firebase-admin");
 
 // const serviceAccount = require("./style-decor-firebase.json");
-const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
 const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
@@ -57,7 +59,7 @@ const verifyFirebaseToken = async (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const styleDecorDB = client.db("styleDecorDB");
     const userCollection = styleDecorDB.collection("users");
     const serviceCollection = styleDecorDB.collection("services");
@@ -162,24 +164,49 @@ async function run() {
       const { status, email } = req.body;
       const query = { _id: new ObjectId(id) };
 
+      if (status === "cancelled") {
+        const updateInfo = {
+          $set: {
+            status,
+          },
+        };
+        const updateResult = await decoratorCollection.updateOne(
+          query,
+          updateInfo
+        );
+        return res.send(updateResult);
+      }
+
+      const updateInfo = {
+        $set: {
+          status,
+          workStatus: "available",
+        },
+      };
       const updateResult = await decoratorCollection.updateOne(
         query,
         updateInfo
       );
 
       if (status === "approved") {
-        const updateInfo = {
+        const updateData = {
           $set: {
             role: "decorator",
           },
         };
         const updateRole = await userCollection.updateOne(
           { email },
-          updateInfo
+          updateData
         );
       }
 
       res.send(updateResult);
+    });
+
+    app.delete('/decorators/:id/delete', async (req, res) => {
+      const { id } = req.params;
+      const result = await decoratorCollection.deleteOne({_id: new ObjectId(id)})
+    res.send(result)
     });
 
     // bookings API'S -------------------------------------------
