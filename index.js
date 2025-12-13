@@ -140,7 +140,7 @@ async function run() {
 
     app.post("/decorators", async (req, res) => {
       const newDecorator = req.body;
-      newDecorator.status = "pending";
+      const email = (newDecorator.status = "pending");
       newDecorator.applied_at = new Date();
       const result = await decoratorCollection.insertOne(newDecorator);
       res.send(result);
@@ -164,49 +164,59 @@ async function run() {
       const { status, email } = req.body;
       const query = { _id: new ObjectId(id) };
 
+      // if request declined before accepting
       if (status === "cancelled") {
-        const updateInfo = {
+        const result = await decoratorCollection.updateOne(query, {
           $set: {
             status,
           },
-        };
-        const updateResult = await decoratorCollection.updateOne(
-          query,
-          updateInfo
-        );
-        return res.send(updateResult);
+        });
+        return res.send(result);
       }
 
-      const updateInfo = {
+      // if removed from decorator
+      if (status === "removed") {
+        const removeFromDecorators = await decoratorCollection.deleteOne(query);
+
+        const roleUpdateResult = await userCollection.updateOne(
+          { email },
+          {
+            $set: {
+              role: "user",
+            },
+          }
+        );
+        return res.send(removeFromDecorators);
+      }
+
+      // if decorator request approved
+
+      const updateResult = await decoratorCollection.updateOne(query, {
         $set: {
           status,
           workStatus: "available",
         },
-      };
-      const updateResult = await decoratorCollection.updateOne(
-        query,
-        updateInfo
-      );
-
+      });
       if (status === "approved") {
-        const updateData = {
-          $set: {
-            role: "decorator",
-          },
-        };
         const updateRole = await userCollection.updateOne(
           { email },
-          updateData
+          {
+            $set: {
+              role: "decorator",
+            },
+          }
         );
       }
 
       res.send(updateResult);
     });
 
-    app.delete('/decorators/:id/delete', async (req, res) => {
+    app.delete("/decorators/:id/delete", async (req, res) => {
       const { id } = req.params;
-      const result = await decoratorCollection.deleteOne({_id: new ObjectId(id)})
-    res.send(result)
+      const result = await decoratorCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
     });
 
     // bookings API'S -------------------------------------------
