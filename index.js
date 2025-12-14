@@ -117,6 +117,22 @@ async function run() {
       res.send(result);
     });
 
+    app.post("/services", async (req, res) => {
+      const newService = req.body;
+      const result = await serviceCollection.insertOne(newService);
+      res.send(result);
+    });
+
+    app.patch("/services/:id/update", async (req, res) => {
+      const editInfo = req.body;
+      const { id } = req.params;
+      const result = await serviceCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: editInfo }
+      );
+      res.send(result);
+    });
+
     // decorator API'S -------------------------------------------
     app.get("/best-decorators", async (req, res) => {
       const result = await decoratorCollection
