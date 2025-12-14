@@ -135,7 +135,9 @@ async function run() {
 
     app.delete("/services/:id/delete", async (req, res) => {
       const { id } = req.params;
-      const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
+      const result = await serviceCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
       res.send(result);
     });
 
@@ -150,11 +152,14 @@ async function run() {
     });
 
     app.get("/available-decorators", async (req, res) => {
-      const { speciality } = req.query;
+      const { speciality, workStatus } = req.query;
 
       let query = { workStatus: "available" };
       if (speciality) {
         query.specialities = { $regex: speciality, $options: "i" };
+      }
+      if (workStatus === "available") {
+        query.workStatus = workStatus;
       }
       const result = await decoratorCollection.find(query).toArray();
       res.send(result);
@@ -273,8 +278,8 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/bookings/:serviceId", async (req, res) => {
-      const id = req.params.serviceId;
+    app.patch("/bookings/:bookingId", async (req, res) => {
+      const id = req.params.bookingId;
       const { serviceType, date, time, notes, location, totalUnit, totalCost } =
         req.body;
       const updateInfo = {
@@ -293,6 +298,30 @@ async function run() {
         updateInfo
       );
       res.send(result);
+    });
+
+    app.patch("/bookings/assign-decorator/:bookingId", async (req, res) => {
+      const { decoratorId, decoratorName, decoratorEmail } = req.body;
+      const { bookingId } = req.params;
+      const updateInfo = {
+        $set: {
+          decoratorId,
+          decoratorName,
+          decoratorEmail,
+          status: "decorator assigned",
+        },
+      };
+      const assignResult = await bookingCollection.updateOne(
+        { _id: new ObjectId(bookingId) },
+        updateInfo
+      );
+
+      // update Decorator workStatus
+      const decoratorUpdate = await decoratorCollection.updateOne(
+        { _id: new ObjectId(decoratorId) },
+        { $set: { workStatus: "assigned" } }
+      );
+      res.send(assignResult);
     });
 
     app.delete("/bookings/:serviceId", async (req, res) => {
