@@ -133,6 +133,12 @@ async function run() {
       res.send(result);
     });
 
+    app.delete("/services/:id/delete", async (req, res) => {
+      const { id } = req.params;
+      const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send(result);
+    });
+
     // decorator API'S -------------------------------------------
     app.get("/best-decorators", async (req, res) => {
       const result = await decoratorCollection
