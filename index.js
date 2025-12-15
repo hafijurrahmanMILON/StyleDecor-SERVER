@@ -67,25 +67,46 @@ async function run() {
     const bookingCollection = styleDecorDB.collection("bookings");
     const paymentCollection = styleDecorDB.collection("payments");
 
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const user = await userCollection.findOne({ email: email });
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "access forbidden" });
+      }
+      next();
+    };
+
     // admin API'S ---------------------------------------------
-    app.get("/admin/analytics", async (req, res) => {
-      const incomeRevenue = await bookingCollection
-        .aggregate([
-          { $match: { paymentStatus: "paid" } },
-          { $group: { _id: null, totalIncome: { $sum: "$totalCost" } } },
-        ])
-        .toArray();
-      const serviceWise = await bookingCollection
-        .aggregate([
-          { $group: { _id: "$serviceName", totalBooked: { $sum: 1 } } },
-        ])
-        .toArray();
-      const totalBookings = await bookingCollection.countDocuments();
-      res.send({
-        totalIncome: incomeRevenue[0]?.totalIncome || 0,
-        totalBookings,
-        serviceWise,
-      });
+    app.get(
+      "/admin/analytics",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const incomeRevenue = await bookingCollection
+          .aggregate([
+            { $match: { paymentStatus: "paid" } },
+            { $group: { _id: null, totalIncome: { $sum: "$totalCost" } } },
+          ])
+          .toArray();
+        const serviceWise = await bookingCollection
+          .aggregate([
+            { $group: { _id: "$serviceName", totalBooked: { $sum: 1 } } },
+          ])
+          .toArray();
+        const totalBookings = await bookingCollection.countDocuments();
+        res.send({
+          totalIncome: incomeRevenue[0]?.totalIncome || 0,
+          totalBookings,
+          serviceWise,
+        });
+      }
+    );
+
+    app.get("/users/role/:email", async (req, res) => {
+      const { email } = req.params;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+      res.send({ role: user?.role || "user" });
     });
 
     // users API'S ---------------------------------------------
@@ -138,29 +159,44 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/services", async (req, res) => {
-      const newService = req.body;
-      const result = await serviceCollection.insertOne(newService);
-      res.send(result);
-    });
+    app.post(
+      "/services",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const newService = req.body;
+        const result = await serviceCollection.insertOne(newService);
+        res.send(result);
+      }
+    );
 
-    app.patch("/services/:id/update", async (req, res) => {
-      const editInfo = req.body;
-      const { id } = req.params;
-      const result = await serviceCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: editInfo }
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/services/:id/update",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const editInfo = req.body;
+        const { id } = req.params;
+        const result = await serviceCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: editInfo }
+        );
+        res.send(result);
+      }
+    );
 
-    app.delete("/services/:id/delete", async (req, res) => {
-      const { id } = req.params;
-      const result = await serviceCollection.deleteOne({
-        _id: new ObjectId(id),
-      });
-      res.send(result);
-    });
+    app.delete(
+      "/services/:id/delete",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { id } = req.params;
+        const result = await serviceCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      }
+    );
 
     // decorator API'S -------------------------------------------
     app.get("/best-decorators", async (req, res) => {
@@ -188,84 +224,101 @@ async function run() {
 
     app.post("/decorators", async (req, res) => {
       const newDecorator = req.body;
-      const email = (newDecorator.status = "pending");
+      newDecorator.status = "pending";
       newDecorator.applied_at = new Date();
       const result = await decoratorCollection.insertOne(newDecorator);
       res.send(result);
     });
 
-    app.get("/decorators", async (req, res) => {
-      const status = req.query.status;
-      const query = {};
-      if (status) {
-        query.status = { $in: status.split(",") };
+    app.get(
+      "/decorators",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const status = req.query.status;
+        const query = {};
+        if (status) {
+          query.status = { $in: status.split(",") };
+        }
+        const result = await decoratorCollection
+          .find(query)
+          .sort({ applied_at: -1 })
+          .toArray();
+        res.send(result);
       }
-      const result = await decoratorCollection
-        .find(query)
-        .sort({ applied_at: -1 })
-        .toArray();
-      res.send(result);
-    });
+    );
 
-    app.patch("/decorators/:id", async (req, res) => {
-      const id = req.params.id;
-      const { status, email } = req.body;
-      const query = { _id: new ObjectId(id) };
+    app.patch(
+      "/decorators/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status, email } = req.body;
+        const query = { _id: new ObjectId(id) };
 
-      // if request declined before accepting
-      if (status === "cancelled") {
-        const result = await decoratorCollection.updateOne(query, {
+        // if request declined before accepting
+        if (status === "cancelled") {
+          const result = await decoratorCollection.updateOne(query, {
+            $set: {
+              status,
+            },
+          });
+          return res.send(result);
+        }
+
+        // if removed from decorator
+        if (status === "removed") {
+          const removeFromDecorators = await decoratorCollection.deleteOne(
+            query
+          );
+
+          const roleUpdateResult = await userCollection.updateOne(
+            { email },
+            {
+              $set: {
+                role: "user",
+              },
+            }
+          );
+          return res.send(removeFromDecorators);
+        }
+
+        // if decorator request approved
+
+        const updateResult = await decoratorCollection.updateOne(query, {
           $set: {
             status,
+            workStatus: "available",
           },
         });
-        return res.send(result);
+        if (status === "approved") {
+          const updateRole = await userCollection.updateOne(
+            { email },
+            {
+              $set: {
+                role: "decorator",
+              },
+            }
+          );
+        }
+
+        res.send(updateResult);
       }
+    );
 
-      // if removed from decorator
-      if (status === "removed") {
-        const removeFromDecorators = await decoratorCollection.deleteOne(query);
-
-        const roleUpdateResult = await userCollection.updateOne(
-          { email },
-          {
-            $set: {
-              role: "user",
-            },
-          }
-        );
-        return res.send(removeFromDecorators);
+    app.delete(
+      "/decorators/:id/delete",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { id } = req.params;
+        const result = await decoratorCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
       }
-
-      // if decorator request approved
-
-      const updateResult = await decoratorCollection.updateOne(query, {
-        $set: {
-          status,
-          workStatus: "available",
-        },
-      });
-      if (status === "approved") {
-        const updateRole = await userCollection.updateOne(
-          { email },
-          {
-            $set: {
-              role: "decorator",
-            },
-          }
-        );
-      }
-
-      res.send(updateResult);
-    });
-
-    app.delete("/decorators/:id/delete", async (req, res) => {
-      const { id } = req.params;
-      const result = await decoratorCollection.deleteOne({
-        _id: new ObjectId(id),
-      });
-      res.send(result);
-    });
+    );
 
     // bookings API'S -------------------------------------------
     app.post("/bookings", async (req, res) => {
@@ -286,7 +339,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/bookings", async (req, res) => {
+    app.get("/bookings", verifyFirebaseToken, async (req, res) => {
       const { email } = req.query;
       const query = {};
       if (email) {
@@ -299,7 +352,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/bookings/:bookingId", async (req, res) => {
+    app.patch("/bookings/:bookingId", verifyFirebaseToken, async (req, res) => {
       const id = req.params.bookingId;
       const { serviceType, date, time, notes, location, totalUnit, totalCost } =
         req.body;
@@ -321,66 +374,79 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/bookings/assign-decorator/:bookingId", async (req, res) => {
-      const { decoratorId, decoratorName, decoratorEmail } = req.body;
-      const { bookingId } = req.params;
-      const updateInfo = {
-        $set: {
-          decoratorId,
-          decoratorName,
-          decoratorEmail,
-          status: "decorator assigned",
-        },
-      };
-      const assignResult = await bookingCollection.updateOne(
-        { _id: new ObjectId(bookingId) },
-        updateInfo
-      );
+    app.patch(
+      "/bookings/assign-decorator/:bookingId",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { decoratorId, decoratorName, decoratorEmail } = req.body;
+        const { bookingId } = req.params;
+        const updateInfo = {
+          $set: {
+            decoratorId,
+            decoratorName,
+            decoratorEmail,
+            status: "decorator assigned",
+          },
+        };
+        const assignResult = await bookingCollection.updateOne(
+          { _id: new ObjectId(bookingId) },
+          updateInfo
+        );
 
-      // update Decorator workStatus
-      const decoratorUpdate = await decoratorCollection.updateOne(
-        { _id: new ObjectId(decoratorId) },
-        { $set: { workStatus: "assigned" } }
-      );
-      res.send(assignResult);
-    });
+        // update Decorator workStatus
+        const decoratorUpdate = await decoratorCollection.updateOne(
+          { _id: new ObjectId(decoratorId) },
+          { $set: { workStatus: "assigned" } }
+        );
+        res.send(assignResult);
+      }
+    );
 
-    app.delete("/bookings/:serviceId", async (req, res) => {
-      const id = req.params.serviceId;
-      const result = await bookingCollection.deleteOne({
-        _id: new ObjectId(id),
-      });
-      res.send(result);
-    });
+    app.delete(
+      "/bookings/:serviceId",
+      verifyFirebaseToken,
+      async (req, res) => {
+        const id = req.params.serviceId;
+        const result = await bookingCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        res.send(result);
+      }
+    );
 
     // payment API'S ------------------------------------------
-    app.post("/payment-checkout-session", async (req, res) => {
-      const paymentInfo = req.body;
-      const amount = parseInt(paymentInfo.serviceCost * 100);
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: "USD",
-              unit_amount: amount,
-              product_data: {
-                name: paymentInfo.serviceName,
+    app.post(
+      "/payment-checkout-session",
+      verifyFirebaseToken,
+      async (req, res) => {
+        const paymentInfo = req.body;
+        const amount = parseInt(paymentInfo.serviceCost * 100);
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "USD",
+                unit_amount: amount,
+                product_data: {
+                  name: paymentInfo.serviceName,
+                },
               },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          metadata: {
+            bookingId: paymentInfo.bookingId,
+            serviceName: paymentInfo.serviceName,
           },
-        ],
-        metadata: {
-          bookingId: paymentInfo.bookingId,
-          serviceName: paymentInfo.serviceName,
-        },
-        mode: "payment",
-        customer_email: paymentInfo.customerEmail,
-        success_url: `${process.env.CLIENT_URL}dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.CLIENT_URL}dashboard/payment-cancel`,
-      });
-      res.send({ url: session.url });
-    });
+          mode: "payment",
+          customer_email: paymentInfo.customerEmail,
+          success_url: `${process.env.CLIENT_URL}dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL}dashboard/payment-cancel`,
+        });
+        res.send({ url: session.url });
+      }
+    );
 
     app.patch("/payment-success", async (req, res) => {
       const session_id = req.query.session_id;
