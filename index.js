@@ -59,13 +59,34 @@ const verifyFirebaseToken = async (req, res, next) => {
 
 async function run() {
   try {
-    // await client.connect();
+    await client.connect();
     const styleDecorDB = client.db("styleDecorDB");
     const userCollection = styleDecorDB.collection("users");
     const serviceCollection = styleDecorDB.collection("services");
     const decoratorCollection = styleDecorDB.collection("decorators");
     const bookingCollection = styleDecorDB.collection("bookings");
     const paymentCollection = styleDecorDB.collection("payments");
+
+    // admin API'S ---------------------------------------------
+    app.get("/admin/analytics", async (req, res) => {
+      const incomeRevenue = await bookingCollection
+        .aggregate([
+          { $match: { paymentStatus: "paid" } },
+          { $group: { _id: null, totalIncome: { $sum: "$totalCost" } } },
+        ])
+        .toArray();
+      const serviceWise = await bookingCollection
+        .aggregate([
+          { $group: { _id: "$serviceName", totalBooked: { $sum: 1 } } },
+        ])
+        .toArray();
+      const totalBookings = await bookingCollection.countDocuments();
+      res.send({
+        totalIncome: incomeRevenue[0]?.totalIncome || 0,
+        totalBookings,
+        serviceWise,
+      });
+    });
 
     // users API'S ---------------------------------------------
     app.post("/users", async (req, res) => {
@@ -426,10 +447,10 @@ async function run() {
       res.send(result);
     });
 
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
   }
 }
