@@ -231,6 +231,16 @@ async function run() {
     });
 
     app.get(
+      "/decorators/select",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const result = await decoratorCollection.find().toArray();
+        res.send(result);
+      }
+    );
+
+    app.get(
       "/decorators",
       verifyFirebaseToken,
       verifyAdmin,
@@ -352,6 +362,19 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/bookings/decorator", async (req, res) => {
+      const { decoratorEmail, status } = req.query;
+      const query = {};
+      if (decoratorEmail) {
+        query.decoratorEmail = decoratorEmail;
+      }
+      if (status) {
+        query.status = status;
+      }
+      const result = await bookingCollection.find(query).toArray();
+      res.send(result);
+    });
+
     app.patch("/bookings/:bookingId", verifyFirebaseToken, async (req, res) => {
       const id = req.params.bookingId;
       const { serviceType, date, time, notes, location, totalUnit, totalCost } =
@@ -400,6 +423,28 @@ async function run() {
           { $set: { workStatus: "assigned" } }
         );
         res.send(assignResult);
+      }
+    );
+
+    app.patch(
+      "/bookings/status/:bookingId",
+      verifyFirebaseToken,
+      async (req, res) => {
+        const status = req.body.status;
+        const id = req.params.bookingId;
+        const updateInfo = {
+          status: status,
+        };
+        if (status === "pending") {
+          updateInfo.decoratorId = null;
+          updateInfo.decoratorName = null;
+          updateInfo.decoratorEmail = null;
+        }
+        const result = await bookingCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateInfo }
+        );
+        res.send(result);
       }
     );
 
@@ -469,7 +514,9 @@ async function run() {
       if (session.payment_status === "paid") {
         const bookingId = session.metadata.bookingId;
         const query = { _id: new ObjectId(bookingId) };
-        const update = { $set: { paymentStatus: "paid", trackingId } };
+        const update = {
+          $set: { paymentStatus: "paid", trackingId, transactionId },
+        };
 
         const updateResult = await bookingCollection.updateOne(query, update);
 
