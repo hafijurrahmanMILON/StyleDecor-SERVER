@@ -59,7 +59,7 @@ const verifyFirebaseToken = async (req, res, next) => {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const styleDecorDB = client.db("styleDecorDB");
     const userCollection = styleDecorDB.collection("users");
     const serviceCollection = styleDecorDB.collection("services");
@@ -375,6 +375,84 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/bookings/decorator/today", async (req, res) => {
+      const email = req.query.email;
+
+      const today = new Date().toISOString().split("T")[0];
+
+      const query = {
+        decoratorEmail: email,
+        paymentStatus: "paid",
+        date: today,
+        status: { $ne: "decorator assigned" },
+      };
+
+      const result = await bookingCollection
+        .find(query)
+        .sort({ time: 1 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.get("/bookings/decorator/earnings", async (req, res) => {
+      const email = req.query.email;
+      const earningSummary = [
+        {
+          $match: {
+            decoratorEmail: email,
+            paymentStatus: "paid",
+            status: "completed",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalEarnings: { $sum: "$totalCost" },
+            totalCompletedJobs: { $sum: 1 },
+          },
+        },
+      ];
+      const result = await bookingCollection
+        .aggregate(earningSummary)
+        .toArray();
+      res.send(result[0]);
+    });
+
+    //    app.get("/bookings/decorator/earnings", async (req, res) => {
+    //   const email = req.query.email;
+
+    //   if (!email) {
+    //     return res.status(400).send({ message: "Decorator email required" });
+    //   }
+
+    //   const pipeline = [
+    //     {
+    //       $match: {
+    //         decoratorEmail: email,
+    //         paymentStatus: "paid",
+    //         status: "completed",
+    //       },
+    //     },
+    //     {
+    //       $group: {
+    //         _id: null,
+    //         totalEarnings: { $sum: "$totalCost" },
+    //         totalCompletedJobs: { $sum: 1 },
+    //       },
+    //     },
+    //   ];
+
+    //   const result = await bookingCollection.aggregate(pipeline).toArray();
+
+    //   res.send(
+    //     result[0] || {
+    //       totalEarnings: 0,
+    //       totalCompletedJobs: 0,
+    //     }
+    //   );
+    // });
+
     app.patch("/bookings/:bookingId", verifyFirebaseToken, async (req, res) => {
       const id = req.params.bookingId;
       const { serviceType, date, time, notes, location, totalUnit, totalCost } =
@@ -486,8 +564,8 @@ async function run() {
           },
           mode: "payment",
           customer_email: paymentInfo.customerEmail,
-          success_url: `${process.env.CLIENT_URL}dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${process.env.CLIENT_URL}dashboard/payment-cancel`,
+          success_url: `${process.env.CLIENT_URL}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_URL}/dashboard/payment-cancel`,
         });
         res.send({ url: session.url });
       }
@@ -560,10 +638,10 @@ async function run() {
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
   }
 }
