@@ -173,6 +173,9 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const newService = req.body;
+        if (newService.cost) {
+          newService.cost = parseFloat(newService.cost);
+        }
         const result = await serviceCollection.insertOne(newService);
         res.send(result);
       }
@@ -185,6 +188,11 @@ async function run() {
       async (req, res) => {
         const editInfo = req.body;
         const { id } = req.params;
+
+        if (editInfo.cost) {
+          editInfo.cost = parseFloat(editInfo.cost);
+        }
+
         const result = await serviceCollection.updateOne(
           { _id: new ObjectId(id) },
           { $set: editInfo }
@@ -491,7 +499,6 @@ async function run() {
           updateInfo
         );
 
-        // update Decorator workStatus
         const decoratorUpdate = await decoratorCollection.updateOne(
           { _id: new ObjectId(decoratorId) },
           { $set: { workStatus: "assigned" } }
@@ -505,11 +512,9 @@ async function run() {
       verifyFirebaseToken,
       verifyDecorator,
       async (req, res) => {
-        const status = req.body.status;
+        const { status, decoratorEmail } = req.body;
         const id = req.params.bookingId;
-        const updateInfo = {
-          status: status,
-        };
+        const updateInfo = { status: status };
         if (status === "pending") {
           updateInfo.decoratorId = null;
           updateInfo.decoratorName = null;
@@ -519,6 +524,27 @@ async function run() {
           { _id: new ObjectId(id) },
           { $set: updateInfo }
         );
+        if (status === "completed") {
+          const activeStatuses = [
+            "decorator assigned",
+            "planning phase",
+            "material prepared",
+            "on the way to venue",
+            "setup in progress",
+          ];
+
+          const activeBooking = await bookingCollection.findOne({
+            decoratorEmail,
+            status: { $in: activeStatuses },
+          });
+
+          if (!activeBooking) {
+            await decoratorCollection.updateOne(
+              { email: decoratorEmail },
+              { $set: { workStatus: "available" } }
+            );
+          }
+        }
         res.send(result);
       }
     );
