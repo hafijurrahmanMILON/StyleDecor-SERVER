@@ -409,7 +409,6 @@ async function run() {
           decoratorEmail: email,
           paymentStatus: "paid",
           date: today,
-          status: { $ne: "decorator assigned" },
         };
 
         const result = await bookingCollection
