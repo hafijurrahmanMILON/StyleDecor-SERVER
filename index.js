@@ -75,6 +75,14 @@ async function run() {
       }
       next();
     };
+    const verifyDecorator = async (req, res, next) => {
+      const email = req.decoded_email;
+      const user = await userCollection.findOne({ email: email });
+      if (!user || user.role !== "decorator") {
+        return res.status(403).send({ message: "access forbidden" });
+      }
+      next();
+    };
 
     // admin API'S ---------------------------------------------
     app.get(
@@ -235,7 +243,15 @@ async function run() {
       verifyFirebaseToken,
       verifyAdmin,
       async (req, res) => {
-        const result = await decoratorCollection.find().toArray();
+        const { speciality, status } = req.query;
+        const query = {};
+        if (speciality) {
+          query.specialities = { $regex: speciality, $options: "i" };
+        }
+        if (status) {
+          query.status = status;
+        }
+        const result = await decoratorCollection.find(query).toArray();
         res.send(result);
       }
     );
@@ -331,7 +347,7 @@ async function run() {
     );
 
     // bookings API'S -------------------------------------------
-    app.post("/bookings", async (req, res) => {
+    app.post("/bookings", verifyFirebaseToken, async (req, res) => {
       const newBookings = req.body;
       const exist = await bookingCollection.findOne({
         customerEmail: newBookings.customerEmail,
@@ -362,96 +378,77 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/bookings/decorator", async (req, res) => {
-      const { decoratorEmail, status } = req.query;
-      const query = {};
-      if (decoratorEmail) {
-        query.decoratorEmail = decoratorEmail;
+    app.get(
+      "/bookings/decorator",
+      verifyFirebaseToken,
+      verifyDecorator,
+      async (req, res) => {
+        const { decoratorEmail, status } = req.query;
+        const query = {};
+        if (decoratorEmail) {
+          query.decoratorEmail = decoratorEmail;
+        }
+        if (status) {
+          query.status = status;
+        }
+        const result = await bookingCollection.find(query).toArray();
+        res.send(result);
       }
-      if (status) {
-        query.status = status;
+    );
+
+    app.get(
+      "/bookings/decorator/today",
+      verifyFirebaseToken,
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.query.email;
+
+        const today = new Date().toISOString().split("T")[0];
+
+        const query = {
+          decoratorEmail: email,
+          paymentStatus: "paid",
+          date: today,
+          status: { $ne: "decorator assigned" },
+        };
+
+        const result = await bookingCollection
+          .find(query)
+          .sort({ time: 1 })
+          .toArray();
+
+        res.send(result);
       }
-      const result = await bookingCollection.find(query).toArray();
-      res.send(result);
-    });
+    );
 
-    app.get("/bookings/decorator/today", async (req, res) => {
-      const email = req.query.email;
-
-      const today = new Date().toISOString().split("T")[0];
-
-      const query = {
-        decoratorEmail: email,
-        paymentStatus: "paid",
-        date: today,
-        status: { $ne: "decorator assigned" },
-      };
-
-      const result = await bookingCollection
-        .find(query)
-        .sort({ time: 1 })
-        .toArray();
-
-      res.send(result);
-    });
-
-    app.get("/bookings/decorator/earnings", async (req, res) => {
-      const email = req.query.email;
-      const earningSummary = [
-        {
-          $match: {
-            decoratorEmail: email,
-            paymentStatus: "paid",
-            status: "completed",
+    app.get(
+      "/bookings/decorator/earnings",
+      verifyFirebaseToken,
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.query.email;
+        const earningSummary = [
+          {
+            $match: {
+              decoratorEmail: email,
+              paymentStatus: "paid",
+              status: "completed",
+            },
           },
-        },
-        {
-          $group: {
-            _id: null,
-            totalEarnings: { $sum: "$totalCost" },
-            totalCompletedJobs: { $sum: 1 },
+          {
+            $group: {
+              _id: null,
+              totalEarnings: { $sum: "$totalCost" },
+              totalCompletedJobs: { $sum: 1 },
+            },
           },
-        },
-      ];
-      const result = await bookingCollection
-        .aggregate(earningSummary)
-        .toArray();
-      res.send(result[0]);
-    });
-
-    //    app.get("/bookings/decorator/earnings", async (req, res) => {
-    //   const email = req.query.email;
-
-    //   if (!email) {
-    //     return res.status(400).send({ message: "Decorator email required" });
-    //   }
-
-    //   const pipeline = [
-    //     {
-    //       $match: {
-    //         decoratorEmail: email,
-    //         paymentStatus: "paid",
-    //         status: "completed",
-    //       },
-    //     },
-    //     {
-    //       $group: {
-    //         _id: null,
-    //         totalEarnings: { $sum: "$totalCost" },
-    //         totalCompletedJobs: { $sum: 1 },
-    //       },
-    //     },
-    //   ];
-
-    //   const result = await bookingCollection.aggregate(pipeline).toArray();
-
-    //   res.send(
-    //     result[0] || {
-    //       totalEarnings: 0,
-    //       totalCompletedJobs: 0,
-    //     }
-    //   );
-    // });
+        ];
+        const result = await bookingCollection
+          .aggregate(earningSummary)
+          .toArray();
+        res.send(result[0]);
+      }
+    );
 
     app.patch("/bookings/:bookingId", verifyFirebaseToken, async (req, res) => {
       const id = req.params.bookingId;
@@ -507,6 +504,7 @@ async function run() {
     app.patch(
       "/bookings/status/:bookingId",
       verifyFirebaseToken,
+      verifyDecorator,
       async (req, res) => {
         const status = req.body.status;
         const id = req.params.bookingId;
@@ -549,7 +547,7 @@ async function run() {
           line_items: [
             {
               price_data: {
-                currency: "USD",
+                currency: "bdt",
                 unit_amount: amount,
                 product_data: {
                   name: paymentInfo.serviceName,
