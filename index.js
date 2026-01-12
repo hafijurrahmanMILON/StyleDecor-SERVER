@@ -133,6 +133,22 @@ async function run() {
       res.send();
     });
 
+    app.patch("/users/:email", async (req, res) => {
+      const { email } = req.params;
+      const { displayName, photoURL } = req.body;
+
+      const updateDoc = {
+        $set: {
+          displayName,
+          photoURL,
+        },
+      };
+
+      const result = await userCollection.updateOne({ email }, updateDoc);
+
+      res.send(result);
+    });
+
     // service API'S --------------------------------------------
     app.get("/featured-services", async (req, res) => {
       const result = await serviceCollection.find().limit(8).toArray();
@@ -140,7 +156,8 @@ async function run() {
     });
 
     app.get("/all-services", async (req, res) => {
-      const { searchText, serviceType, maxBudget, minBudget } = req.query;
+      const { searchText, serviceType, maxBudget, minBudget, sortPrice } =
+        req.query;
       const query = {};
       if (searchText) {
         query.service_name = { $regex: searchText, $options: "i" };
@@ -157,7 +174,16 @@ async function run() {
           query.cost.$lte = parseFloat(maxBudget);
         }
       }
-      const result = await serviceCollection.find(query).toArray();
+      let sortOption = {};
+      if (sortPrice === "asc") {
+        sortOption.cost = 1;
+      } else if (sortPrice === "desc") {
+        sortOption.cost = -1;
+      }
+      const result = await serviceCollection
+        .find(query)
+        .sort(sortOption)
+        .toArray();
       res.send(result);
     });
 
